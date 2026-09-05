@@ -1,610 +1,126 @@
-# 🖥️ Automated Hybrid Network Monitoring Dashboard
+# Automated Hybrid Network & Monitoring Dashboard
+
+> A Windows infrastructure monitoring dashboard that discovers Active Directory computers, checks reachability, and collects practical host health metrics through PowerShell remoting.
 
 <p align="center">
-  <strong>Real-Time Windows Server & Active Directory Infrastructure Monitoring</strong>
+  <a href="https://github.com/Vahid-Rahmani/Automated-Hybrid-Network-Monitoring-Dashboard"><img src="https://img.shields.io/badge/status-active%20development-2563eb" alt="Active development"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776ab" alt="Python"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/API-FastAPI-009688" alt="FastAPI"></a>
+  <a href="https://learn.microsoft.com/powershell/"><img src="https://img.shields.io/badge/Windows-PowerShell-5391FE" alt="PowerShell"></a>
 </p>
 
-<p align="center">
-  Python • FastAPI • PowerShell • WinRM • Active Directory • DNS • DHCP • Hyper-V
-</p>
+## Why this project exists
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11-blue">
-  <img src="https://img.shields.io/badge/FastAPI-Monitoring-green">
-  <img src="https://img.shields.io/badge/Windows-Server%202025-blue">
-  <img src="https://img.shields.io/badge/Active%20Directory-Auto%20Discovery-purple">
-  <img src="https://img.shields.io/badge/Status-Active-success">
-</p>
+Small hybrid environments often need a clear operational view before they need a large observability platform. This project provides a focused, self-hosted view of Windows machines managed through Active Directory and PowerShell remoting.
 
----
+The current implementation is intentionally transparent: discovery, DNS resolution, reachability checks, remote metric collection, and dashboard rendering are all visible in a small Python codebase.
 
-## 🚀 Project Overview
+## Current capabilities
 
-**Automated Hybrid Network Monitoring Dashboard** is a real Windows infrastructure monitoring platform built around a Microsoft Active Directory home lab.
+- Discovers computers from Active Directory through a domain controller.
+- Resolves hostnames and checks device reachability with Windows `ping`.
+- Collects CPU, RAM, C: drive usage, and uptime from online Windows hosts.
+- Classifies devices as clients, servers, or domain controllers from their names.
+- Runs collection concurrently with a bounded worker pool.
+- Exposes a FastAPI endpoint at `/api/devices` for dashboard data.
+- Serves a responsive browser dashboard from the same FastAPI application.
+- Handles timeouts and unavailable hosts without stopping the whole collection cycle.
 
-The platform automatically discovers domain-joined servers and clients from Active Directory and remotely monitors their health without requiring a Python agent on every machine.
-
-The monitoring engine collects:
-
-- 🟢 Online / Offline status
-- ⚙️ CPU utilization
-- 🧠 RAM utilization
-- 💾 Disk usage
-- ⏱️ System uptime
-- 🌐 IP addresses
-- 🖥️ Device type
-- 🔎 Active Directory computer discovery
-
-The dashboard is powered by **FastAPI**, while Windows telemetry is collected remotely through **PowerShell, WinRM and CIM/WMI**.
-
----
-
-# 🏗️ Infrastructure Architecture
-
-```mermaid
-flowchart TB
-
-    HOST["💻 Hyper-V Host<br/>Monitoring Dashboard"]
-
-    SW["🔀 DC-LAB<br/>Virtual Network"]
-
-    DC1["🛡️ SERVER-DC<br/>192.168.100.10<br/>AD DS • DNS"]
-
-    DC2["🛡️ SRV-DC01<br/>192.168.100.11<br/>AD DS • DNS"]
-
-    DHCP["🌐 SRV-APP01<br/>192.168.100.20<br/>DHCP Server"]
-
-    C1["💻 CLI-01<br/>DHCP Client"]
-    C2["💻 CLI-02<br/>DHCP Client"]
-    C3["💻 CLI-03<br/>DHCP Client"]
-
-    HOST --> SW
-
-    SW --> DC1
-    SW --> DC2
-    SW --> DHCP
-
-    SW --> C1
-    SW --> C2
-    SW --> C3
-
-    DC1 <-->|AD & DNS Replication| DC2
-
-    DC1 -->|"Active Directory"| C1
-    DC1 -->|"Active Directory"| C2
-    DC1 -->|"Active Directory"| C3
-
-    DHCP -->|"DHCP Lease"| C1
-    DHCP -->|"DHCP Lease"| C2
-    DHCP -->|"DHCP Lease"| C3
-```
-
----
-
-# 🏢 Active Directory Architecture
-
-```mermaid
-flowchart TD
-
-    FOREST["🌲 Forest<br/>kurs.intern"]
-
-    DOMAIN["🏢 Domain<br/>kurs.intern"]
-
-    DC1["🛡️ SERVER-DC<br/>Primary Domain Controller"]
-
-    DC2["🛡️ SRV-DC01<br/>Additional Domain Controller"]
-
-    SERVERS["🖥️ Domain Servers"]
-    CLIENTS["💻 Domain Clients"]
-
-    DHCP["SRV-APP01"]
-    C1["CLI-01"]
-    C2["CLI-02"]
-    C3["CLI-03"]
-
-    FOREST --> DOMAIN
-
-    DOMAIN --> DC1
-    DOMAIN --> DC2
-
-    DOMAIN --> SERVERS
-    DOMAIN --> CLIENTS
-
-    SERVERS --> DHCP
-
-    CLIENTS --> C1
-    CLIENTS --> C2
-    CLIENTS --> C3
-
-    DC1 <-->|Replication| DC2
-```
-
----
-
-# 🌐 Lab Network
-
-| Device | Role | IP Address |
-|---|---|---|
-| `Gateway` | Hyper-V NAT Gateway | `192.168.100.1` |
-| `SERVER-DC` | Domain Controller + DNS | `192.168.100.10` |
-| `SRV-DC01` | Additional DC + DNS | `192.168.100.11` |
-| `SRV-APP01` | DHCP Server | `192.168.100.20` |
-| `CLI-01` | Windows Client | DHCP |
-| `CLI-02` | Windows Client | DHCP |
-| `CLI-03` | Windows Client | DHCP |
-
-### DHCP Pool
-
-```text
-192.168.100.100
-        ↓
-192.168.100.200
-```
-
-### DHCP Options
-
-```text
-003 Router
-→ 192.168.100.1
-
-006 DNS Servers
-→ 192.168.100.10
-→ 192.168.100.11
-
-015 DNS Domain Name
-→ kurs.intern
-```
-
----
-
-# 🔍 Automatic Active Directory Discovery
-
-One of the main features of the project is automatic device discovery.
-
-The monitoring system does **not** require servers or clients to be manually added to the Python source code.
+## Architecture at a glance
 
 ```mermaid
 flowchart LR
-
-    AD["Active Directory<br/>kurs.intern"]
-
-    QUERY["Get-ADComputer"]
-
-    COLLECTOR["Python Collector"]
-
-    DNS["DNS Resolution"]
-
-    HEALTH["Health Checks"]
-
-    DASH["FastAPI Dashboard"]
-
-    AD --> QUERY
-    QUERY --> COLLECTOR
-    COLLECTOR --> DNS
-    DNS --> HEALTH
-    HEALTH --> DASH
+    A[Operator browser] --> B[FastAPI dashboard]
+    B --> C[GET /api/devices]
+    C --> D[Collector]
+    D --> E[Active Directory via PowerShell remoting]
+    D --> F[DNS resolution]
+    D --> G[Ping reachability]
+    D --> H[PowerShell remoting + CIM counters]
+    E --> D
+    F --> D
+    G --> D
+    H --> D
+    D --> I[Normalised device status]
+    I --> C
 ```
 
-When a new machine such as:
+## Repository map
 
 ```text
-CLI-04
+.
+├── app.py                 # FastAPI application and dashboard UI
+├── collector.py           # AD discovery and Windows health collection
+├── requirements.txt       # Runtime dependencies
+├── start-monitor.bat      # Windows convenience launcher
+├── templates/             # Dashboard templates
+├── static/                # Dashboard assets
+└── windows-infra-monitor/ # Supporting Windows infrastructure material
 ```
 
-joins the domain:
+## Quick start
 
-```text
-CLI-04
-   ↓
-kurs.intern
-   ↓
-Active Directory
-   ↓
-Auto Discovery
-   ↓
-Monitoring Collector
-   ↓
-Dashboard
-```
+### Requirements
 
-it can automatically become part of the monitoring environment.
+- Windows PowerShell 5.1+ or PowerShell 7
+- Python 3.10+
+- Network access to the domain controller and monitored Windows hosts
+- A credential file created for the monitoring account at:
+  `%USERPROFILE%\kurs-monitor-cred.xml`
+- Permission to query Active Directory and use PowerShell remoting
 
----
-
-# 📊 Current Monitoring Metrics
-
-Each discovered device can report:
-
-| Metric | Description |
-|---|---|
-| 🟢 Status | Online / Offline |
-| ⚙️ CPU | Current CPU utilization |
-| 🧠 RAM | Memory utilization |
-| 💾 Disk | C: drive utilization |
-| ⏱️ Uptime | Hours since last boot |
-| 🌐 IP | Internal IP address |
-| 🖥️ Role | Server, Domain Controller or Client |
-
-Example:
-
-```text
-SERVER-DC
-
-Status  → ONLINE
-CPU     → 0.6%
-RAM     → 67.5%
-Disk    → 22.5%
-Uptime  → 2.1 h
-```
-
----
-
-# ⚡ Parallel Monitoring Engine
-
-Remote systems are checked concurrently using Python:
-
-```text
-ThreadPoolExecutor
-```
-
-Instead of:
-
-```text
-Server 1
-   ↓
-Server 2
-   ↓
-Server 3
-   ↓
-Client 1
-   ↓
-Client 2
-```
-
-the monitoring engine performs checks approximately like:
-
-```text
-          Collector
-             │
-     ┌───────┼────────┐
-     ▼       ▼        ▼
- SERVER   SERVER    CLIENT
-     │       │        │
-     ▼       ▼        ▼
- Metrics  Metrics   Metrics
-```
-
-This prevents one slow or unavailable machine from freezing the entire monitoring dashboard.
-
-Timeout protection is also implemented for remote operations.
-
----
-
-# 🔐 Agentless Remote Monitoring
-
-No Python monitoring agent is required on every Windows machine.
-
-The platform uses:
-
-```text
-PowerShell Remoting
-        +
-WinRM
-        +
-CIM / WMI
-```
-
-to retrieve metrics remotely.
-
-```mermaid
-sequenceDiagram
-
-    participant M as Monitoring Host
-    participant W as WinRM
-    participant C as Windows Client
-
-    M->>W: Remote PowerShell Request
-    W->>C: Execute CIM Query
-    C-->>W: CPU / RAM / Disk / Uptime
-    W-->>M: JSON Metrics
-```
-
----
-
-# 🛡️ Group Policy Automation
-
-A dedicated Group Policy is used to prepare domain computers for monitoring.
-
-```text
-Monitoring - WinRM Clients
-```
-
-The policy is applied through Active Directory and can automatically configure PowerShell Remoting for domain clients.
-
-```mermaid
-flowchart LR
-
-    DC["Domain Controller"]
-
-    GPO["Monitoring - WinRM Clients"]
-
-    C1["CLI-01"]
-    C2["CLI-02"]
-    C3["CLI-03"]
-    C4["Future Client"]
-
-    DC --> GPO
-
-    GPO --> C1
-    GPO --> C2
-    GPO --> C3
-    GPO --> C4
-```
-
-This makes future devices much easier to integrate into the monitoring platform.
-
----
-
-# 🔄 Domain Controller Redundancy
-
-The lab contains two Domain Controllers.
-
-```text
-SERVER-DC
-AD DS + DNS + GC
-       ⇅
-   Replication
-       ⇅
-SRV-DC01
-AD DS + DNS + GC
-```
-
-Replication health has been verified using:
+### Install and run
 
 ```powershell
-repadmin /replsummary
+git clone https://github.com/Vahid-Rahmani/Automated-Hybrid-Network-Monitoring-Dashboard.git
+Set-Location Automated-Hybrid-Network-Monitoring-Dashboard
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+py -m pip install -r requirements.txt
+py -m uvicorn app:app --reload
 ```
 
-**Purpose:** Displays a summary of Active Directory replication health between Domain Controllers.
+Open <http://127.0.0.1:8000> in a browser. The JSON data endpoint is available at <http://127.0.0.1:8000/api/devices>.
 
-DNS health can be verified using:
+The collector currently uses the domain controller address defined in `collector.py`. Change that value for your lab before running it.
 
-```powershell
-dcdiag /test:dns
-```
+## Credential and network notes
 
-**Purpose:** Tests Active Directory DNS configuration and DNS-related Domain Controller health.
+The collector reads an encrypted Windows credential export with PowerShell `Import-Clixml`; it does not require a password to be written in the repository. Create the file with a monitoring account on the same Windows user profile that will run the collector, and never commit it.
 
----
+Before troubleshooting the application, verify:
 
-# 🧰 Technology Stack
+1. DNS resolves the monitored hostnames.
+2. PowerShell remoting is enabled and reachable.
+3. The monitoring account has the minimum required AD and remote-query permissions.
+4. Windows Firewall permits the required management traffic.
 
-### Infrastructure
+## Validation checklist
 
-- Windows Server 2025
-- Windows 11 Pro
-- Microsoft Hyper-V
-- Active Directory Domain Services
-- DNS
-- DHCP
-- Group Policy
-- WinRM
+- Run the collector directly: `py collector.py`
+- Start the API and open `/api/devices`.
+- Confirm offline hosts remain visible with `online: false`.
+- Confirm unavailable metrics are represented as `null` rather than invented values.
+- Test with a lab account and lab machines before connecting production infrastructure.
 
-### Backend
+## Scope and roadmap
 
-- Python 3.11
-- FastAPI
-- Uvicorn
-- PowerShell
-- CIM / WMI
-- ThreadPoolExecutor
+The repository currently focuses on Windows/Active Directory discovery and host health collection. Azure-native telemetry, long-term storage, alert routing, authentication, and historical charts are planned extensions rather than claimed current features.
 
-### Monitoring
+- [x] Active Directory discovery
+- [x] Reachability and basic host metrics
+- [x] FastAPI dashboard endpoint
+- [ ] Authentication and role-based access
+- [ ] Historical metric storage and trend charts
+- [ ] Optional Azure Monitor / Log Analytics integration
+- [ ] Alert policies and notification channels
 
-- Active Directory Auto Discovery
-- ICMP Health Checks
-- WinRM Remote Monitoring
-- DNS Resolution
-- System Metrics Collection
+## Related work
 
----
+- [Vahid Rahmani portfolio](https://vahid-portfolio-three.vercel.app/)
+- [GitHub profile](https://github.com/Vahid-Rahmani)
+- [Zova classroom assistant](https://zovasite.vercel.app/)
 
-# 📁 Project Structure
+## License
 
-```text
-Automated-Hybrid-Network-Monitoring-Dashboard/
-│
-├── app.py
-│   └── FastAPI monitoring dashboard
-│
-├── collector.py
-│   ├── Active Directory discovery
-│   ├── DNS resolution
-│   ├── Ping health checks
-│   ├── WinRM monitoring
-│   ├── CPU collection
-│   ├── RAM collection
-│   ├── Disk collection
-│   └── Uptime collection
-│
-├── requirements.txt
-│
-├── .gitignore
-│
-└── README.md
-```
-
----
-
-# 🖥️ Dashboard
-
-The current dashboard displays infrastructure status in real time.
-
-```text
-╔════════════════════════════════════════════════════════════╗
-║           WINDOWS INFRASTRUCTURE MONITOR                  ║
-║                    KURS.INTERN                            ║
-╠════════════════════════════════════════════════════════════╣
-║ TOTAL DEVICES     ONLINE       OFFLINE                    ║
-║      6               6             0                      ║
-╠════════════════════════════════════════════════════════════╣
-║ DEVICE       ROLE                STATUS      RAM     DISK  ║
-║ SERVER-DC    Domain Controller   🟢 ONLINE   67%     22%  ║
-║ SRV-DC01     Domain Controller   🟢 ONLINE   62%     34%  ║
-║ SRV-APP01    Server              🟢 ONLINE   60%     30%  ║
-║ CLI-01       Client              🟢 ONLINE   73%     21%  ║
-║ CLI-02       Client              🟢 ONLINE   78%     21%  ║
-║ CLI-03       Client              🟢 ONLINE   74%     21%  ║
-╚════════════════════════════════════════════════════════════╝
-```
-
----
-
-# ▶️ Running the Project
-
-Install dependencies:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-**Purpose:** Installs the required Python packages.
-
-Start the monitoring dashboard:
-
-```bash
-python -m uvicorn app:app --reload
-```
-
-**Purpose:** Starts the FastAPI development server with automatic reload.
-
-Open:
-
-```text
-http://127.0.0.1:8000
-```
-
-API endpoint:
-
-```text
-http://127.0.0.1:8000/api/devices
-```
-
----
-
-# 🔐 Security
-
-Credentials are **not stored directly inside Python source code**.
-
-Windows credentials are protected using:
-
-```text
-Export-Clixml
-+
-Windows DPAPI
-```
-
-Sensitive files are excluded through:
-
-```text
-.gitignore
-```
-
-The monitoring system currently operates only inside the private infrastructure network.
-
-Domain Controllers are **not directly exposed to the public Internet**.
-
----
-
-# 🗺️ Development Roadmap
-
-### ✅ Phase 1 — Windows Infrastructure
-
-- [x] Hyper-V Lab
-- [x] Active Directory Domain
-- [x] Primary Domain Controller
-- [x] Additional Domain Controller
-- [x] DNS
-- [x] AD Replication
-- [x] DHCP
-- [x] Windows Clients
-- [x] Domain Join
-
-### ✅ Phase 2 — Monitoring Core
-
-- [x] FastAPI Dashboard
-- [x] Active Directory Auto Discovery
-- [x] DNS Resolution
-- [x] Online / Offline Monitoring
-- [x] CPU Monitoring
-- [x] RAM Monitoring
-- [x] Disk Monitoring
-- [x] Uptime Monitoring
-- [x] Parallel Health Checks
-- [x] WinRM Remote Monitoring
-
-### 🚧 Phase 3 — Windows Service Health
-
-- [ ] Active Directory Health
-- [ ] DNS Health
-- [ ] Domain Controller Replication Health
-- [ ] DHCP Service Health
-- [ ] Domain Membership Validation
-
-### 🚧 Phase 4 — Advanced Dashboard
-
-- [ ] Live JavaScript Updates
-- [ ] CPU / RAM History Graphs
-- [ ] Infrastructure Health Score
-- [ ] Warning Thresholds
-- [ ] Critical Alerts
-- [ ] Device Detail Pages
-- [ ] Event History
-
-### ☁️ Phase 5 — Cloud
-
-- [ ] Public Dashboard
-- [ ] Azure Deployment
-- [ ] Secure Collector-to-Cloud API
-- [ ] Historical Database
-- [ ] Authentication
-- [ ] HTTPS
-- [ ] Alerting
-
----
-
-# 🎯 Project Goal
-
-The goal of this project is to build a practical monitoring platform while learning and demonstrating real-world skills in:
-
-```text
-Windows Server Administration
-Active Directory
-DNS
-DHCP
-Group Policy
-PowerShell
-WinRM
-Python Automation
-FastAPI
-Infrastructure Monitoring
-Hyper-V
-Networking
-Cloud Architecture
-```
-
-The final architecture will combine a **private Windows infrastructure lab** with a **secure public monitoring dashboard**, without exposing internal Domain Controllers or private network services directly to the Internet.
-
----
-
-# 👨‍💻 Author
-
-**Vahid Rahmani**
-
-Cloud Engineering • Windows Server • System Administration • Python Automation
-
----
-
-<p align="center">
-  Built as a hands-on Windows Server, Active Directory and Infrastructure Monitoring project.
-</p>
+No license file is currently published in this repository. Review the project before reusing it in a commercial or production environment.
